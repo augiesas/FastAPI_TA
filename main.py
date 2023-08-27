@@ -19,6 +19,7 @@ import cv2
 import pickle
 import mysql.connector
 import json
+import zipfile
 
 from sklearn import svm
 from sklearn.model_selection import train_test_split
@@ -49,19 +50,27 @@ mycursor = mydb.cursor()
 
 classes = np.load('Classes/array_classes_new.npy')
 
+
 @app.post('/predict')
 async def predict(file: UploadFile = File()):
     # Convert the uploaded file read from bytes to numpy format
-    image = preprocess_image(await file.read()) #Baca image yang di post
+    image = preprocess_image(await file.read())  # Baca image yang di post
 
     # For AVM and KNN - Prediction
     # extract feature - For fruit image
     MODEL = tf.keras.models.load_model('Model/VGG16_model.h5', compile=False)
     extracted_features = MODEL.predict(image)
     # Reshape to 2D array
-    extracted_features = np.reshape(extracted_features, (extracted_features.shape[0], -1))
+    extracted_features = np.reshape(
+        extracted_features, (extracted_features.shape[0], -1))
     # Predict
-    loaded_model = pickle.load(open("Model/model_VGG16_CNN_SVM_sigmoid_CV2_new.sav", 'rb'))
+    zip_file_path = "Model/model_VGG16_CNN_SVM_sigmoid_CV2_new.zip"
+    target_sav_file = "model_VGG16_CNN_SVM_sigmoid_CV2_new.sav"
+
+    # Extract the zipped file
+    with zipfile.ZipFile(zip_file_path, 'r') as zip_ref:
+        zip_ref.extractall("Model")
+    loaded_model = pickle.load(open(f"Model/{target_sav_file}", 'rb'))
     predictions = loaded_model.predict(extracted_features)
     result = str(predictions[0])
     print(result)
@@ -80,7 +89,7 @@ async def predict(file: UploadFile = File()):
 
     # For ANN
     # confidence = float(predictions[0][predicted_class])
-    
+
     # Print the predicted class label and the highest probability
     print("==============================================")
     print("Classes: "+' '.join(classes))
@@ -102,16 +111,17 @@ async def predict(file: UploadFile = File()):
             ]
         }
         return json_response
-        
+
     else:
         # nutrition_result = get_nutrition(str(predicted_class_label), file.filename)
         nutrition_result = get_nutrition(result, file.filename)
         return nutrition_result
-    
+
+
 def preprocess_image(data) -> np.ndarray:
     image_1 = Image.open(BytesIO(data))
     image_to_array = np.array(image_1)
-    img_blur = cv2.blur(image_to_array, (3,3))
+    img_blur = cv2.blur(image_to_array, (3, 3))
     img_median = cv2.medianBlur(img_blur, 5)
     img_laplacian = cv2.Laplacian(img_median, cv2.CV_64F, ksize=3)
     img_sharpened = img_median - img_laplacian
@@ -122,6 +132,7 @@ def preprocess_image(data) -> np.ndarray:
     return preprocess_input(x)
 
 # ====================================================================================================================================================================
+
 
 def get_nutrition(fruit_name, fileUri) -> np.ndarray:
     # sql = "SELECT buah.nama, deskripsi.* FROM buah LEFT JOIN deskripsi ON buah.id = deskripsi.buah_id WHERE buah.nama = %s;"
@@ -139,11 +150,12 @@ def get_nutrition(fruit_name, fileUri) -> np.ndarray:
     # Create a list with a single item, the dictionary
     data_list = [{'kategori': k, 'value': v} for k, v in data_dict.items()]
 
-    data_list.append({'kategori':'Image', 'value':fileUri})
+    data_list.append({'kategori': 'Image', 'value':fileUri})
     # Create a JSON object with the list
     json_data = {'data': data_list}
 
     return json_data
+
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
